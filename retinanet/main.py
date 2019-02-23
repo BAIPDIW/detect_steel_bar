@@ -27,9 +27,9 @@ import csv_eval
 
 assert torch.__version__.split('.')[1] == '4'
 
-print('CUDA available: {}'.format(torch.cuda.is_available()))
+#print('CUDA available: {}'.format(torch.cuda.is_available()))
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
 def main(args=None):
 
     parser     = argparse.ArgumentParser(description='Simple training script for training a RetinaNet network.')
@@ -40,9 +40,10 @@ def main(args=None):
     parser.add_argument('--csv_classes', default = "./data/classes.csv",help='Path to file containing class list (see readme)')
     parser.add_argument('--csv_val', default = "./data/train_only.csv",help='Path to file containing validation annotations (optional, see readme)')
 
-    parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=101)
+    parser.add_argument('--depth', help='Resnet depth, must be one of 18, 34, 50, 101, 152', type=int, default=50)
     parser.add_argument('--epochs', help='Number of epochs', type=int, default=40)
-
+    parser.add_argument('--gpus',help='Number of gpus',type=str,default='0')
+    parser.add_argument('--batch_size',help='batch size',type=int,default=4)
     parser = parser.parse_args(args)
 
     # Create the data loaders
@@ -74,12 +75,12 @@ def main(args=None):
     else:
         raise ValueError('Dataset type not understood (must be csv or coco), exiting.')
 
-    sampler = AspectRatioBasedSampler(dataset_train, batch_size=1, drop_last=False)
-    dataloader_train = DataLoader(dataset_train, num_workers=3, collate_fn=collater, batch_sampler=sampler)
+    #sampler = AspectRatioBasedSampler(dataset_train, batch_size=parser.batch_size, drop_last=False)
+    dataloader_train = DataLoader(dataset_train, num_workers=6, collate_fn=collater, batch_size=parser.batch_size,shuffle=True,pin_memory=True)
 
     if dataset_val is not None:
-        sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=1, drop_last=False)
-        dataloader_val = DataLoader(dataset_val, num_workers=3, collate_fn=collater, batch_sampler=sampler_val)
+        sampler_val = AspectRatioBasedSampler(dataset_val, batch_size=parser.batch_size, drop_last=False)
+        dataloader_val = DataLoader(dataset_val, num_workers=6, collate_fn=collater, batch_sampler=sampler_val)
 
     # Create the model
     if parser.depth == 18:
@@ -99,8 +100,8 @@ def main(args=None):
 
     if use_gpu:
         retinanet = retinanet.cuda()
-
-    retinanet = torch.nn.DataParallel(retinanet).cuda()
+    gpus = [int(i) for i in parser.gpus.split(',')]
+    retinanet = torch.nn.DataParallel(retinanet,device_ids=gpus).cuda()
 
     retinanet.training = True
 
@@ -120,6 +121,7 @@ def main(args=None):
     log_file = open("./logs/log.txt","w")
     print('Num training images: {}'.format(len(dataset_train)))
     best_map = 0
+    is_best_map = False
     print("Training models...")
     for epoch_num in range(parser.epochs):
 
@@ -140,7 +142,8 @@ def main(args=None):
                 classification_loss = classification_loss.mean()
                 regression_loss = regression_loss.mean()
 
-                loss = classification_loss + regression_loss
+                #loss = classification_loss + regression_loss
+                loss = regression_loss
                 
                 if bool(loss == 0):
                     continue
@@ -173,7 +176,7 @@ def main(args=None):
 
             print('Evaluating dataset')
 
-            mAP = csv_eval.evaluate(dataset_val, retinanet)
+            mAP = csv_eval.evaluate(dataset_val, retinanet,gpus)
         
         try:
             is_best_map = mAP[0][0] > best_map

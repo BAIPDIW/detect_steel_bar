@@ -4,12 +4,12 @@ import torch.nn as nn
 
 def calc_iou(a, b):
     area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
-
+    #torch.unsqueeze(a[:, 2], dim=1).shape = (99765,1)
     iw = torch.min(torch.unsqueeze(a[:, 2], dim=1), b[:, 2]) - torch.max(torch.unsqueeze(a[:, 0], 1), b[:, 0])
     ih = torch.min(torch.unsqueeze(a[:, 3], dim=1), b[:, 3]) - torch.max(torch.unsqueeze(a[:, 1], 1), b[:, 1])
-
-    iw = torch.clamp(iw, min=0)
-    ih = torch.clamp(ih, min=0)
+    
+    iw = torch.clamp(iw, min=0)#(99765,1)
+    ih = torch.clamp(ih, min=0)#(99765,1)
 
     ua = torch.unsqueeze((a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1]), dim=1) + area - iw * ih
 
@@ -24,27 +24,27 @@ def calc_iou(a, b):
 class FocalLoss(nn.Module):
     #def __init__(self):
 
-    def forward(self, classifications, regressions, anchors, annotations):
+    def forward(self, classifications, regressions, anchors, annotations):#(batch_size,99765,1) (batch_size,99765,4) (1,99765,4)
         alpha = 0.25
         gamma = 2.0
-        batch_size = classifications.shape[0]
-        classification_losses = []
+        batch_size = classifications.shape[0] #batch_size
+        classification_losses = []  
         regression_losses = []
 
-        anchor = anchors[0, :, :]
+        anchor = anchors[0, :, :] #(99765,4)
 
-        anchor_widths  = anchor[:, 2] - anchor[:, 0]
-        anchor_heights = anchor[:, 3] - anchor[:, 1]
-        anchor_ctr_x   = anchor[:, 0] + 0.5 * anchor_widths
-        anchor_ctr_y   = anchor[:, 1] + 0.5 * anchor_heights
+        anchor_widths  = anchor[:, 2] - anchor[:, 0]#(99765)
+        anchor_heights = anchor[:, 3] - anchor[:, 1]#(99765)
+        anchor_ctr_x   = anchor[:, 0] + 0.5 * anchor_widths#(99765)
+        anchor_ctr_y   = anchor[:, 1] + 0.5 * anchor_heights#(99765)
 
         for j in range(batch_size):
 
-            classification = classifications[j, :, :]
-            regression = regressions[j, :, :]
+            classification = classifications[j, :, :] #(99765,1)
+            regression = regressions[j, :, :]#(99765,4)
 
-            bbox_annotation = annotations[j, :, :]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
+            bbox_annotation = annotations[j, :, :] #[(x1,x2,x3,x4,label),...]
+            bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1] #[(x1,x2,x3,x4,label),....]
 
             if bbox_annotation.shape[0] == 0:
                 regression_losses.append(torch.tensor(0).float().cuda())
@@ -53,25 +53,25 @@ class FocalLoss(nn.Module):
                 continue
 
             classification = torch.clamp(classification, 1e-4, 1.0 - 1e-4)
+            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4]) # num_anchors x num_annotations  # 99765 x num_annotations
 
-            IoU = calc_iou(anchors[0, :, :], bbox_annotation[:, :4]) # num_anchors x num_annotations
 
-            IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1
+            IoU_max, IoU_argmax = torch.max(IoU, dim=1) # num_anchors x 1(99765 x1) , num_anchors x 1 = (99765 x1)
 
             #import pdb
             #pdb.set_trace()
 
             # compute the loss for classification
-            targets = torch.ones(classification.shape) * -1
+            targets = torch.ones(classification.shape) * -1 #(99765,1)
             targets = targets.cuda()
 
-            targets[torch.lt(IoU_max, 0.4), :] = 0
+            targets[torch.lt(IoU_max, 0.4), :] = 0 #(99765,1)
 
-            positive_indices = torch.ge(IoU_max, 0.5)
+            positive_indices = torch.ge(IoU_max, 0.5)#(99765,1)
 
-            num_positive_anchors = positive_indices.sum()
+            num_positive_anchors = positive_indices.sum() #the number of positive samples
 
-            assigned_annotations = bbox_annotation[IoU_argmax, :]
+            assigned_annotations = bbox_annotation[IoU_argmax, :] #(99765,5)
 
             targets[positive_indices, :] = 0
             targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1

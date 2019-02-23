@@ -140,18 +140,18 @@ class CSVDataset(Dataset):
         # parse the provided class file
         try:
             with self._open_for_csv(self.class_list) as file:
-                self.classes = self.load_classes(csv.reader(file, delimiter=','))
+                self.classes = self.load_classes(csv.reader(file, delimiter=','))#{'gangjin':0}
         except ValueError as e:
             raise_from(ValueError('invalid CSV class file: {}: {}'.format(self.class_list, e)), None)
 
         self.labels = {}
         for key, value in self.classes.items():
-            self.labels[value] = key
+            self.labels[value] = key#{0:'gangjin'}
 
         # csv with img_path, x1, y1, x2, y2, class_name
         try:
             with self._open_for_csv(self.train_file) as file:
-                self.image_data = self._read_annotations(csv.reader(file, delimiter=','), self.classes)
+                self.image_data = self._read_annotations(csv.reader(file, delimiter=','), self.classes)  #{'img0':[{'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2, 'class': class_name},...]}
         except ValueError as e:
             raise_from(ValueError('invalid CSV annotations file: {}: {}'.format(self.train_file, e)), None)
         self.image_names = list(self.image_data.keys())
@@ -204,7 +204,7 @@ class CSVDataset(Dataset):
     def __getitem__(self, idx):
 
         img = self.load_image(idx)
-        annot = self.load_annotations(idx)
+        annot = self.load_annotations(idx)#[[x1,x2,x3,x4,label],[x1,x2,x3,x4,label]....]
         sample = {'img': img, 'annot': annot,'filename':self.image_names[idx]}
         if self.transform:
             sample = self.transform(sample)
@@ -345,26 +345,26 @@ class Resizer(object):
 
         rows, cols, cns = image.shape
 
-        smallest_side = min(rows, cols)
+        smallest_side = min(rows, cols)#2000
 
         # rescale the image so the smallest side is min_side
-        scale = min_side / smallest_side
+        scale = min_side / smallest_side #0.304
 
         # check if the largest side is now greater than max_side, which can happen
         # when images have a large aspect ratio
-        largest_side = max(rows, cols)
+        largest_side = max(rows, cols)#2666
 
-        if largest_side * scale > max_side:
+        if largest_side * scale > max_side:#810 >1024:
             scale = max_side / largest_side
 
         # resize the image with the computed scale
-        image = skimage.transform.resize(image, (int(round(rows*scale)), int(round((cols*scale)))))
+        image = skimage.transform.resize(image, (int(round(rows*scale)), int(round((cols*scale)))),mode='constant',anti_aliasing=True) #608 x 810
         rows, cols, cns = image.shape
 
-        pad_w = 32 - rows%32
-        pad_h = 32 - cols%32
+        pad_w = 32 - rows%32#32
+        pad_h = 32 - cols%32#22
 
-        new_image = np.zeros((rows + pad_w, cols + pad_h, cns)).astype(np.float32)
+        new_image = np.zeros((rows + pad_w, cols + pad_h, cns)).astype(np.float32)#640x832
         new_image[:rows, :cols, :] = image.astype(np.float32)
 
         annots[:, :4] *= scale
